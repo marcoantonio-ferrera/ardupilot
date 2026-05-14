@@ -1,0 +1,5 @@
+# BeagleV-Fire (PolarFire SoC MPFS) — AP_HAL_Zephyr board
+# Hardware configuration lives in hwdef.h and Zephyr DTS overlays.
+# This file exists so add_dynamic_boards_zephyr() registers the board with WAF.
+define HAL_BOARD_NAME "BeagleV-Fire"
+define ZEPHYR_BOARD  beaglev_fire/polarfire/u54

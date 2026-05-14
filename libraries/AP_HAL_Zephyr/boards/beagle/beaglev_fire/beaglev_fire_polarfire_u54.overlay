@@ -1,0 +1,129 @@
+/*
+ * ArduPilot peripheral map for beaglev_fire/polarfire/u54.
+ */
+
+/ {
+	chosen {
+		/* shared wire with SERIAL0 MAVLink */
+		zephyr,console = &uart2;
+	};
+
+	aliases {
+		ardupilot-serial0 = &uart2;
+		ardupilot-serial3 = &uart3;
+		ardupilot-serial4 = &uart4;
+
+		ardupilot-gpio0 = &gpio0;
+		ardupilot-gpio1 = &gpio1;
+		ardupilot-gpio2 = &gpio2;
+
+		ardupilot-i2c0 = &i2c0;
+
+		ardupilot-spi1 = &spi1;
+
+		ardupilot-pwm0 = &fabric_servo_pwm;
+
+		sdhc0 = &sdhc_spi;
+
+		/* To enable SBUS RC input: drop one serial alias and add
+		 * ardupilot-rcinput = &uart3;  (or whichever UART is free).
+		 * The SBUS signal may need hardware inversion. */
+	};
+
+	/* ROBOTICS cape fabric servo PWM, 8 ch in the FIC3 AXI window. */
+	fabric_servo_pwm: servo-pwm@41000000 {
+		compatible = "beaglev-fire,fabric-servo-pwm";
+		reg = <0x41000000 0x20>;
+		#pwm-cells = <2>;
+		status = "okay";
+	};
+};
+
+/* IMU + baro live on i2c0 (ROBOTICS cape) */
+&i2c0 {
+	status = "okay";
+};
+
+&i2c1 {
+	status = "disabled";
+};
+
+&gpio0 {
+	status = "okay";
+	ngpios = <14>;
+};
+
+&gpio1 {
+	status = "okay";
+	ngpios = <24>;
+};
+
+&gpio2 {
+	status = "okay";
+	ngpios = <32>;
+
+	vio_enable: vio_enable {
+		gpio-hog;
+		gpios = <30 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "VIO_ENABLE";
+	};
+};
+
+&uart1 {
+	status = "disabled";
+};
+
+/* PCLK override matches mss_ahb_div.c halving AHB to 75 MHz at PRE_KERNEL_1,
+ * so ns16550 computes the right baud latch. */
+&uart2 {
+	status = "okay";
+	clock-frequency = <75000000>;
+	current-speed = <115200>;
+};
+
+&uart3 {
+	status = "okay";
+	clock-frequency = <75000000>;
+	current-speed = <115200>;
+};
+
+&uart4 {
+	status = "okay";
+	clock-frequency = <75000000>;
+	current-speed = <9600>;
+};
+
+&uart0 {
+	status = "disabled";
+};
+
+&spi1 {
+	/* use the AP_HAL_Zephyr fork — upstream microchip,mpfs-spi has no
+	 * GPIO CS handling, so cs-gpios would be ignored. */
+	compatible = "ardupilot,mpfs-mss-spi";
+	status = "okay";
+	clock-frequency = <75000000>;
+	#address-cells = <1>;
+	#size-cells = <0>;
+	cs-gpios = <&gpio0 12 GPIO_ACTIVE_LOW>;
+
+	sdhc_spi: sdhc@0 {
+		compatible = "zephyr,sdhc-spi-slot";
+		reg = <0>;
+		status = "okay";
+		/* 1 MHz is conservative; bump once mount is known-good */
+		spi-max-frequency = <1000000>;
+		cd-gpios = <&gpio2 31 GPIO_ACTIVE_LOW>;
+		mmc {
+			compatible = "zephyr,sdmmc-disk";
+			disk-name = "SD";
+			status = "okay";
+		};
+	};
+};
+
+/* relocate Zephyr SRAM to avoid overlapping with U-Boot in DDR */
+&ddr_cached_high {
+	reg = <0x10 0x04000000 0x7C000000>;
+};

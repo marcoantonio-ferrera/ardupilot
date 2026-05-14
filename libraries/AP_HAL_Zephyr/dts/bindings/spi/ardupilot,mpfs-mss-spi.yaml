@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: Apache-2.0
+# Same as microchip,mpfs-spi but with a different compatible, so the
+# AP_HAL_Zephyr fork driver can claim the node instead of upstream.
+
+description: Microchip Polarfire SOC SPI controller (ArduPilot fork with GPIO CS)
+
+compatible: "ardupilot,mpfs-mss-spi"
+
+include: [spi-controller.yaml, reset-device.yaml]
+
+properties:
+  reg:
+    required: true
+
+  interrupts:
+    required: true
+
+  clock-frequency:
+    type: int
+    required: true
+    description: Input reference clock frequency in Hz.

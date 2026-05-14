@@ -1,0 +1,5 @@
+mainmenu "Zephyr Kernel Configuration"
+
+source "Kconfig.zephyr"
+
+source "$(APPLICATION_SOURCE_DIR)/../Kconfig"

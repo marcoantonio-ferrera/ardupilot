@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: Apache-2.0
+
+description: BeagleV-Fire fabric servo PWM controller (ROBOTICS cape gateware)
+
+compatible: "beaglev-fire,fabric-servo-pwm"
+
+include: [base.yaml, pwm-controller.yaml]
+
+properties:
+  reg:
+    required: true
+
+  "#pwm-cells":
+    const: 2
+
+pwm-cells:
+  - channel
+  - flags

@@ -1,0 +1,72 @@
+# AP_HAL_Zephyr Kconfig options. Sourced from the app Kconfig after Kconfig.zephyr.
+
+config AP_HAL_I2C_FORCE_MSG_RESTART
+	bool "Force I2C_MSG_RESTART on write→read direction change"
+	default y if SOC_POLARFIRE
+	help
+	  Append I2C_MSG_RESTART to every read that follows a write in the
+	  same i2c_transfer(). Required by the MPFS MSS I2C controller;
+	  STM32/nRF/SAMD handle the repeated start automatically and reject
+	  the explicit flag.
+
+config AP_HAL_I2C_FAST_THRESHOLD_HZ
+	int "I2C bus_clock threshold (Hz) above which FAST mode is selected"
+	default 400001 if SOC_POLARFIRE
+	default 400000
+	help
+	  bus_clock > threshold → I2C_SPEED_FAST, else STANDARD.
+	  On MPFS the FAST divisor lands at 293 kHz (post AHB halving) or
+	  585 kHz raw — either way bus_clock=400000 has to stay STANDARD.
+
+config AP_HAL_UART_PLIC_REARM
+	bool "Re-arm UART IRQ on every TX write (AMP PLIC-reset workaround)"
+	default y if SOC_POLARFIRE
+	help
+	  Adds an irq_enable() before every UART TX kick plus a periodic
+	  watchdog. Recovers from OpenSBI's plic_cold_irqchip_init() clearing
+	  all PLIC source enables a few seconds after Zephyr boots.
+	  Harmless no-op on non-PLIC controllers.
+
+config AP_HAL_UART_TX_BUF_SIZE
+	int "UART driver TX ring buffer size (bytes, per instance)"
+	default 32768
+	help
+	  Sized for a MAVLink-FTP param.pck burst plus GCS traffic.
+	  Reduce on small-RAM targets that don't need FTP.
+
+config AP_HAL_UART_SERIAL0_MIN_BAUD
+	int "Serial0 minimum baud rate clamp (0 = no clamp)"
+	default 0
+	help
+	  If > 0, clamps Serial0's baud upward. Keeps a stale SERIAL0_BAUD
+	  param from dropping below the hardware link rate and locking out
+	  the GCS.
+
+config AP_HAL_GPIO_NUM_CONTROLLERS
+	int "Number of GPIO controllers exposed to ArduPilot"
+	default 3
+	help
+	  Number of ardupilot-gpio<N> DT aliases. Entries beyond the board's
+	  count have nullptr devices (reads return 0, writes no-op).
+
+config AP_HAL_ADC_BITS
+	int "ADC resolution in bits"
+	default 12
+	help
+	  Bit resolution for raw→voltage conversion. Must match the
+	  resolution field in AnalogIn's adc_sequence.
+
+config AP_HAL_BOARD_VOLTAGE_MV
+	int "Board supply voltage in millivolts"
+	default 3300
+	help
+	  Value reported by AnalogIn::board_voltage(); only relevant
+	  when there is no VCC-monitor ADC channel.
+
+config AP_HAL_ZEPHYR_MOCK_SENSORS
+	bool "Use mock IMU and barometer backends"
+	default n
+	help
+	  Sim-only. Swaps the IMU/baro backends for zero-data stubs so
+	  ArduPilot starts without real I2C transactions. Never enable on
+	  real hardware — the fake data will fly badly.

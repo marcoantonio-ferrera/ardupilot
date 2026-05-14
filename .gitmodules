@@ -45,3 +45,7 @@
 [submodule "modules/littlefs"]
 	path = modules/littlefs
 	url = https://github.com/ArduPilot/littlefs.git
+
+[submodule "modules/zephyr"]
+	path = modules/zephyr
+	url = https://github.com/zephyrproject-rtos/zephyr.git

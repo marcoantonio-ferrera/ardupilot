@@ -657,9 +657,23 @@ def add_dynamic_boards_esp32():
             else:
                 newclass = type(d, (esp32,), {'name': d})
 
+def add_dynamic_boards_zephyr():
+    '''add boards based on existence of hwdef.dat in subdirectories for Zephyr'''
+    hwdef_dir = 'libraries/AP_HAL_Zephyr/hwdef'
+    if not os.path.isdir(hwdef_dir):
+        return
+    dirname, dirlist, filenames = next(os.walk(hwdef_dir))
+    for d in dirlist:
+        if d in _board_classes.keys():
+            continue
+        hwdef = os.path.join(dirname, d, 'hwdef.dat')
+        if os.path.exists(hwdef):
+            newclass = type(d, (zephyr,), {'name': d})
+
 def get_boards_names():
     add_dynamic_boards_chibios()
     add_dynamic_boards_esp32()
+    add_dynamic_boards_zephyr()
     add_dynamic_boards_linux()
 
     return sorted(list(_board_classes.keys()), key=str.lower)
@@ -1227,6 +1241,119 @@ class esp32s3(esp32):
         if hasattr(self, 'hwdef'):
             cfg.env.HWDEF = self.hwdef
         super(esp32s3, self).configure_env(cfg, env)
+
+class zephyr(Board):
+    abstract = True
+
+    def configure_toolchain(self, cfg):
+        _cross = os.environ.get('CROSS_COMPILE', '').rstrip('/')
+        if not _cross:
+            cfg.fatal(
+                'AP_HAL_Zephyr: CROSS_COMPILE env var must be set '
+                '(e.g. export CROSS_COMPILE=riscv-none-elf-  or  '
+                'export CROSS_COMPILE=arm-zephyr-eabi-)'
+            )
+        cfg.env.TOOLCHAIN = _cross.rstrip('-').rsplit('/', 1)[-1]
+        cfg.load('toolchain')
+
+    def configure_env(self, cfg, env):
+        env.BOARD_CLASS = "Zephyr"
+        super(zephyr, self).configure_env(cfg, env)
+        cfg.load('zephyr')
+
+        env.DEFINES.update(
+            CONFIG_HAL_BOARD='HAL_BOARD_ZEPHYR',
+        )
+        env.AP_LIBRARIES += [
+            'AP_HAL_Zephyr',
+        ]
+
+        # ArduPilot-specific optimization flags are board/arch-agnostic and
+        perf_flags = [
+            '-O2',
+            '-fno-math-errno',
+            '-ffunction-sections',
+            '-fdata-sections',
+            '-g',
+        ]
+        env.CFLAGS += perf_flags
+        env.CXXFLAGS += perf_flags + [
+            '-fno-exceptions',
+            '-fno-rtti',
+            '-fno-threadsafe-statics',
+        ]
+        env.CFLAGS.remove('-Werror=undef')
+        env.CXXFLAGS.remove('-Werror=undef')
+        env.CXXFLAGS.remove('-Werror=cast-align')
+
+        for flag in ['-Werror=unused-variable', '-Werror=unused-but-set-variable']:
+            if flag in env.CXXFLAGS:
+                env.CXXFLAGS.remove(flag)
+            if flag in env.CFLAGS:
+                env.CFLAGS.remove(flag)
+
+        env.CXXFLAGS += ['-Wno-attributes']
+        env.CFLAGS += ['-Wno-attributes']
+
+        env.CFLAGS += ['-D_GNU_SOURCE']
+        env.CXXFLAGS += ['-D_GNU_SOURCE']
+
+        for flag in ['-Werror=sign-compare']:
+            if flag in env.CXXFLAGS:
+                env.CXXFLAGS.remove(flag)
+            if flag in env.CFLAGS:
+                env.CFLAGS.remove(flag)
+
+        for flag in ['-Werror=shadow']:
+            if flag in env.CXXFLAGS:
+                env.CXXFLAGS.remove(flag)
+            if flag in env.CFLAGS:
+                env.CFLAGS.remove(flag)
+
+        zephyr_build_dir = cfg.bldnode.make_node(cfg.variant).make_node('zephyr_build').abspath()
+        autoconf_h = os.path.join(
+            zephyr_build_dir,
+            'zephyr/include/generated/zephyr/autoconf.h',
+        )
+        zephyr_base = cfg.env.ZEPHYR_BASE or os.environ.get('ZEPHYR_BASE', '')
+        zephyr_stdint_h = os.path.join(zephyr_base, 'include/zephyr/toolchain/zephyr_stdint.h')
+        env.CFLAGS += ['-imacros', autoconf_h, '-imacros', zephyr_stdint_h]
+        env.CXXFLAGS += ['-imacros', autoconf_h, '-imacros', zephyr_stdint_h]
+
+        compat_h = os.path.join(
+            cfg.srcnode.abspath(),
+            'libraries/AP_HAL_Zephyr/include/ap_hal_zephyr_compat.h',
+        )
+        if os.path.exists(compat_h):
+            env.CFLAGS   += ['-include', compat_h]
+            env.CXXFLAGS += ['-include', compat_h]
+
+        hwdef_h = os.path.join(
+            cfg.srcnode.abspath(),
+            'libraries/AP_HAL_Zephyr/hwdef',
+            cfg.env.BOARD,
+            'hwdef.h',
+        )
+        if os.path.exists(hwdef_h):
+            env.CFLAGS += ['-include', hwdef_h]
+            env.CXXFLAGS += ['-include', hwdef_h]
+
+        env.AP_PROGRAM_AS_STLIB = True
+
+    def pre_build(self, bld):
+        from waflib.Context import load_tool
+        module = load_tool('zephyr', [], with_sys_path=True)
+        fun = getattr(module, 'pre_build', None)
+        if fun:
+            fun(bld)
+        super(zephyr, self).pre_build(bld)
+
+    def build(self, bld):
+        super(zephyr, self).build(bld)
+        bld.load('zephyr')
+
+    def get_name(self):
+        return self.__class__.__name__
 
 class chibios(Board):
     abstract = True
