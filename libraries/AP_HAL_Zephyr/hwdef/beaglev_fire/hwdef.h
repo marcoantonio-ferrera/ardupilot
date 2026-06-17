@@ -57,6 +57,10 @@
 #define AP_SIM_ENABLED 0
 #endif
 
+#ifndef HAL_WITH_ESC_TELEM
+#define HAL_WITH_ESC_TELEM 1
+#endif
+
 // align ARRAY_SIZE tokens with AP_Common's form before AP headers pull it in,
 // restored to Zephyr's form below — silences the GCC "redefined" warning.
 #undef ARRAY_SIZE
