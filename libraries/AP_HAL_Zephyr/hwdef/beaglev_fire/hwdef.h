@@ -1,4 +1,3 @@
-// BeagleV-Fire (PolarFire SoC) — AP_HAL_Zephyr board config.
 // I2C0: 0x68 MPU-9250, 0x76 BMP280, 0x0c AK8963 (via MPU-9250 bypass).
 #pragma once
 
@@ -19,9 +18,6 @@
 
 #else  // real hardware
 
-// bus_clock 500 kHz puts us on I2C_SPEED_FAST → PCLK/256. mss_ahb_div.c
-// halves AHB at PRE_KERNEL_1 so PCLK/256 lands at 293 kHz (inside spec).
-// All three probes must pass the same bus_clock — last caller wins.
 #define HAL_INS_PROBE_LIST \
     ADD_BACKEND(AP_InertialSensor_Invensense::probe(*this, \
                 hal.i2c_mgr->get_device(0, 0x68, 500000), \
@@ -33,9 +29,6 @@
       RETURN_IF_NO_SPACE; }
 
 #endif
-
-// Cross-board shims live in include/ap_hal_zephyr_compat.h, force-included
-// before this hwdef.h by boards.py.
 
 // HAL_GYROFFT must be off before the AP_Math pre-include below, otherwise
 // AP_Vehicle → AP_GyroFFT.h fails to find FrequencyPeak (HAL_WITH_DSP=0).
@@ -61,13 +54,9 @@
 #define HAL_WITH_ESC_TELEM 1
 #endif
 
-// align ARRAY_SIZE tokens with AP_Common's form before AP headers pull it in,
-// restored to Zephyr's form below — silences the GCC "redefined" warning.
 #undef ARRAY_SIZE
 #define ARRAY_SIZE(_arr) (sizeof(_arr) / sizeof(_arr[0]))
 
-// pull cbprintf while MAX is still Zephyr's ternary macro (needed for its
-// BUILD_ASSERT), then the AP_* headers so MAX becomes the template form.
 #include <zephyr/sys/cbprintf.h>
 
 #ifdef __cplusplus
@@ -165,9 +154,6 @@
 #define HAL_GPIO_LED_ON 1
 #endif
 
-// AK8963 sits behind the MPU-9250 bypass mux, so pass 0x0c (compass addr),
-// not 0x68 (MPU addr). 100 kHz forces STANDARD mode for the compass; the
-// MPU-9250 bypass has timing issues at our 293 kHz FAST rate.
 #define HAL_MAG_PROBE_LIST \
     { add_backend(DRIVER_AK8963, \
                   AP_Compass_AK8963::probe_mpu9250( \

@@ -10,6 +10,9 @@
 
 #ifdef CONFIG_FAT_FILESYSTEM_ELM
 #include <zephyr/fs/fs.h>
+#include <zephyr/storage/disk_access.h>
+#include <zephyr/drivers/disk.h>
+#include <zephyr/drivers/gpio.h>
 
 // ff.h isn't on waf's include path, so stand in with a raw aligned buffer
 // big enough for FATFS state + sector window + LFN buffer.
@@ -179,6 +182,46 @@ void Storage::_write_chunk(uint16_t chunk_idx)
 void Storage::_try_file_mount()
 {
 #ifdef CONFIG_FAT_FILESYSTEM_ELM
+#if DT_NODE_HAS_PROP(DT_NODELABEL(sdhc_spi), cd_gpios)
+    {
+        static const struct gpio_dt_spec cd =
+            GPIO_DT_SPEC_GET(DT_NODELABEL(sdhc_spi), cd_gpios);
+        if (device_is_ready(cd.port)) {
+            gpio_pin_configure_dt(&cd, GPIO_INPUT);
+            int present = gpio_pin_get_dt(&cd);   // logical (DT flags applied): 1 = present
+            printk("### SD: card-detect logical=%d (1=present) raw pin=%s.%d ###\n",
+                   present, cd.port->name, cd.pin);
+        } else {
+            printk("### SD: cd-gpio port not ready ###\n");
+        }
+    }
+#endif
+    {
+        const char *pdrv = "SD";
+        int dret = disk_access_init(pdrv);
+        printk("### SD: disk_access_init=%d %s ###\n",
+               dret, dret == 0 ? "OK" : "FAIL(card-init/comms)");
+        if (dret == 0) {
+            uint32_t sec_cnt = 0, sec_sz = 0;
+            int cc = disk_access_ioctl(pdrv, DISK_IOCTL_GET_SECTOR_COUNT, &sec_cnt);
+            int cs = disk_access_ioctl(pdrv, DISK_IOCTL_GET_SECTOR_SIZE,  &sec_sz);
+            printk("### SD: sectors=%u(rc=%d) sec_sz=%u(rc=%d) cap=%uMiB ###\n",
+                   sec_cnt, cc, sec_sz, cs,
+                   (unsigned)(((uint64_t)sec_cnt * sec_sz) >> 20));
+            static uint8_t sec0[512] __attribute__((aligned(4)));
+            int rr = disk_access_read(pdrv, sec0, 0, 1);
+            if (rr == 0) {
+                printk("### SD: sector0 OK sig=%02x%02x(exp 55aa) "
+                       "oem=%c%c%c%c%c%c%c%c ###\n",
+                       sec0[510], sec0[511],
+                       sec0[3], sec0[4], sec0[5], sec0[6],
+                       sec0[7], sec0[8], sec0[9], sec0[10]);
+            } else {
+                printk("### SD: sector0 read FAIL rc=%d (I/O error) ###\n", rr);
+            }
+        }
+    }
+
     printk("### SD: fs_mount START ###\n");
     int rc = fs_mount(&s_fat_mount);
     printk("### SD: fs_mount rc=%d %s ###\n", rc, (rc == 0 || rc == -EEXIST) ? "OK" : "FAIL");

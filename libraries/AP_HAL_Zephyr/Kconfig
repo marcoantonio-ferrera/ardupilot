@@ -70,3 +70,25 @@ config AP_HAL_ZEPHYR_MOCK_SENSORS
 	  Sim-only. Swaps the IMU/baro backends for zero-data stubs so
 	  ArduPilot starts without real I2C transactions. Never enable on
 	  real hardware — the fake data will fly badly.
+
+# Vendored out-of-tree from pic64gx-zephyr (commit e4f9d31) for the AMP RPMsg link; see drivers/ipm/.
+config IPM_MCHP_IHC
+	bool "IPM Microchip IHC driver"
+	default y
+	depends on DT_HAS_MICROCHIP_MIV_IHC_RTL_V2_ENABLED
+	help
+	  Driver for the Microchip Inter-Hart Communication (Mi-V IHC) unit.
+
+config IPM_MCHP_IHC_REMOTEPROC
+	bool "IPM Microchip IHC remoteproc remote stop handling"
+	depends on IPM_MCHP_IHC
+	default n
+	help
+	  On an IHC RPROC_STOP message, jumps to the scratchpad address below.
+	  Left off for ArduPilot — the FC boots independently of Linux and must
+	  not be stopped by the master.
+
+config IPM_MCHP_IHC_REMOTEPROC_STOP_ADDR
+	hex "IPM Microchip IHC remoteproc remote stop address"
+	default 0xA000000
+	depends on IPM_MCHP_IHC_REMOTEPROC

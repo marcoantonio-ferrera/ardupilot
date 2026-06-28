@@ -1,0 +1,167 @@
+/ {
+	chosen {
+		zephyr,console = &uart4;
+
+		zephyr,ipc = &ihcc_h4_h1;
+		zephyr,ipc_shm = &vdev0buffer;
+		zephyr,ipc-rsc-table = &rsc_table_region;
+	};
+
+	aliases {
+		ardupilot-serial0 = &uart2;
+		ardupilot-rcinput = &uart3;
+		ardupilot-gpio0 = &gpio0;
+		ardupilot-gpio2 = &gpio2;
+		ardupilot-i2c0 = &cape_i2c;
+		ardupilot-spi1 = &spi1;
+		ardupilot-pwm0 = &fabric_servo_pwm;
+		ardupilot-esc-enable = &esc_enable_pin;
+		sdhc0 = &sdhc_spi;
+	};
+
+	fabric_servo_pwm: servo-pwm@41000000 {
+		compatible = "beaglev-fire,fabric-servo-pwm";
+		reg = <0x41000000 0x20>;
+		#pwm-cells = <2>;
+		status = "okay";
+	};
+
+	cape_i2c: i2c@41600000 {
+		compatible = "ardupilot,mpfs-corei2c";
+		reg = <0x41600000 0x1000>;
+		interrupt-parent = <&plic>;
+		interrupts = <150 1>;        /* fabric F2M[32] -> PLIC 118+32 */
+		clock-frequency = <400000>;  /* FAST -> BCLK_DIV_8 */
+		#address-cells = <1>;
+		#size-cells = <0>;
+		status = "okay";
+	};
+
+	esc_enable_keys: esc-enable-keys {
+		compatible = "gpio-keys";
+		esc_enable_pin: esc_enable_pin {
+			gpios = <&gpio2 18 GPIO_ACTIVE_HIGH>;
+			label = "ESC_ENABLE";
+		};
+	};
+};
+
+&i2c0 {
+	status = "disabled";
+};
+
+&i2c1 {
+	status = "disabled";
+};
+
+&gpio0 {
+	status = "okay";
+	ngpios = <14>;
+};
+
+&gpio1 {
+	status = "disabled";
+};
+
+&gpio2 {
+	status = "okay";
+	ngpios = <32>;
+
+	vio_enable: vio_enable {
+		gpio-hog;
+		gpios = <30 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "VIO_ENABLE";
+	};
+};
+
+&uart1 {
+	status = "disabled";
+};
+
+&uart2 {
+	status = "okay";
+	clock-frequency = <150000000>;
+	current-speed = <115200>;
+};
+
+&uart3 {
+	status = "okay";
+	clock-frequency = <150000000>;
+	current-speed = <115200>;
+};
+
+&uart4 {
+	status = "okay";
+	clock-frequency = <150000000>;
+	current-speed = <115200>;
+};
+
+&uart0 {
+	status = "disabled";
+};
+
+&spi1 {
+	/* upstream microchip,mpfs-spi has no GPIO CS handling */
+	compatible = "ardupilot,mpfs-mss-spi";
+	status = "okay";
+	clock-frequency = <150000000>;
+	#address-cells = <1>;
+	#size-cells = <0>;
+	cs-gpios = <&gpio0 12 GPIO_ACTIVE_LOW>;
+
+	sdhc_spi: sdhc@0 {
+		compatible = "zephyr,sdhc-spi-slot";
+		reg = <0>;
+		status = "okay";
+		spi-max-frequency = <1000000>;
+		cd-gpios = <&gpio2 31 GPIO_ACTIVE_LOW>;
+		mmc {
+			compatible = "zephyr,sdmmc-disk";
+			disk-name = "SD";
+			status = "okay";
+		};
+	};
+};
+
+
+&ddr_cached_high {
+	reg = <0x10 0x04000000 0x08000000>;
+};
+
+/ {
+	/* rpmsg buffer pool — equals Linux vdev0buffer@91d10000 (256 KiB) */
+	vdev0buffer: memory@91d10000 {
+		compatible = "mmio-sram";
+		device_type = "memory";
+		reg = <0x91d10000 0x40000>;
+	};
+
+	rsc_table_region: memory@91d50000 {
+		compatible = "mmio-sram";
+		device_type = "memory";
+		reg = <0x91d50000 0x1000>;
+	};
+
+	ihc: ipm@50000000 {
+		compatible = "microchip,miv-ihc-rtl-v2";
+		reg = <0x50000000 0x1000>;
+		interrupt-parent = <&plic>;
+		#address-cells = <1>;
+		#size-cells = <1>;
+		status = "okay";
+
+		ihcm_h4: module@50014000 {
+			reg = <0x50014000 0x100>;
+			interrupts = <177 1>;   /* PLIC F2H_59, hart-4 IHC aggregator */
+			#address-cells = <1>;
+			#size-cells = <1>;
+			status = "okay";
+
+			ihcc_h4_h1: channel@50014200 {
+				reg = <0x50014200 0x100>;  /* u54_4 -> u54_1 channel */
+				status = "okay";
+			};
+		};
+	};
+};

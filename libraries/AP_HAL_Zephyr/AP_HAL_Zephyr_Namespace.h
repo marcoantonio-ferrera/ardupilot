@@ -17,5 +17,6 @@ class SPIDevice;
 class SPIDeviceManager;
 class Storage;
 class UARTDriver;
+class RPMsgUARTDriver;
 class Util;
 }

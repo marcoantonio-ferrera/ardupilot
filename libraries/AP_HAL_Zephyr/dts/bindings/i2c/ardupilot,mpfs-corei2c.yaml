@@ -1,0 +1,22 @@
+#
+# Copyright (c) 2023 Microchip Technology Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+
+description: Microchip CoreI2C fabric I2C controller (ArduPilot fork, same register map as MSS I2C)
+
+compatible: "ardupilot,mpfs-corei2c"
+
+include: [i2c-controller.yaml, reset-device.yaml]
+
+properties:
+  reg:
+    required: true
+
+  interrupts:
+    required: true
+
+  clock-frequency:
+    description: 400000 selects BCLK_DIV_8 (SCL = BCLK/8, ~390 kHz)
+    enum: [100000, 400000]

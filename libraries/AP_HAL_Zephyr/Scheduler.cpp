@@ -1,6 +1,7 @@
 #include "Scheduler.h"
 #include "PeriodicCallback.h"
 
+#include <string.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/sys/printk.h>
 #include <zephyr/devicetree.h>
@@ -11,6 +12,8 @@ using namespace Zephyr;
 K_THREAD_STACK_DEFINE(scheduler_timer_stack, 4096);
 K_THREAD_STACK_DEFINE(scheduler_io_stack, 8192);
 K_THREAD_STACK_ARRAY_DEFINE(scheduler_user_stacks, 6, 8192);
+
+static k_tid_t s_dds_tid;
 
 // k_timer fires at the exact period; expiry only does k_sem_give (ISR-safe).
 static K_SEM_DEFINE(s_timer_sem, 0, 2);
@@ -99,7 +102,13 @@ void Scheduler::delay(uint16_t ms)
 
 void Scheduler::delay_microseconds(uint16_t us)
 {
-    k_busy_wait(us);
+    // DDS runs above main; busy-waiting here would starve the main loop, so sleep
+    // (instead of busy-wait) for that thread only.
+    if (s_dds_tid != nullptr && k_current_get() == s_dds_tid) {
+        k_usleep(us);
+    } else {
+        k_busy_wait(us);
+    }
 }
 
 void Scheduler::register_timer_process(AP_HAL::MemberProc proc)
@@ -202,6 +211,13 @@ bool Scheduler::thread_create(AP_HAL::MemberProc proc, const char *name,
 
         _user_threads[i].proc   = proc;
         _user_threads[i].in_use = true;
+
+        // Record tid before k_thread_create(): DDS is higher priority and can
+        // preempt into delay_microseconds() before this call returns, so s_dds_tid
+        // must already be set or it would busy-wait and deadlock the boot.
+        if (name != nullptr && strcmp(name, "DDS") == 0) {
+            s_dds_tid = &_user_threads[i].thread_data;
+        }
 
         k_thread_create(&_user_threads[i].thread_data,
                         scheduler_user_stacks[i],
