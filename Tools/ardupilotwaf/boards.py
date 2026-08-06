@@ -1163,15 +1163,41 @@ class esp32s3(esp32):
 class zephyr(Board):
     abstract = True
 
+    def _zephyr_sdk_triple(self, cfg):
+        hwdef = os.path.join(cfg.srcnode.abspath(),
+                             'libraries/AP_HAL_Zephyr/hwdef',
+                             self.name, 'hwdef.dat')
+        try:
+            with open(hwdef, 'r', encoding='utf-8') as fh:
+                for line in fh:
+                    m = re.match(r'\s*define\s+ZEPHYR_SDK_TARGET\s+(\S+)', line)
+                    if m:
+                        return m.group(1)
+        except (IOError, OSError):
+            pass
+        return None
+
     def configure_toolchain(self, cfg):
-        _cross = os.environ.get('CROSS_COMPILE', '').rstrip('/')
-        if not _cross:
+        sdk = os.environ.get('ZEPHYR_SDK_INSTALL_DIR', '').rstrip('/')
+        cross = os.environ.get('CROSS_COMPILE', '').rstrip('/')
+        if sdk:
+            triple = (os.environ.get('ZEPHYR_SDK_TRIPLE')
+                      or self._zephyr_sdk_triple(cfg)
+                      or 'riscv64-zephyr-elf')
+            bindir = os.path.join(sdk, triple, 'bin')
+            cfg.env.TOOLCHAIN = os.path.join(bindir, triple)
+            os.environ['PATH'] = bindir + os.pathsep + os.environ.get('PATH', '')
+        elif cross:
+            cfg.env.TOOLCHAIN = cross.rstrip('-')
+            _bindir = os.path.dirname(cfg.env.TOOLCHAIN)
+            if _bindir:
+                os.environ['PATH'] = _bindir + os.pathsep + os.environ.get('PATH', '')
+        else:
             cfg.fatal(
-                'AP_HAL_Zephyr: CROSS_COMPILE env var must be set '
-                '(e.g. export CROSS_COMPILE=riscv-none-elf-  or  '
-                'export CROSS_COMPILE=arm-zephyr-eabi-)'
+                'AP_HAL_Zephyr: set ZEPHYR_SDK_INSTALL_DIR (Zephyr SDK) or '
+                'CROSS_COMPILE (e.g. export CROSS_COMPILE=arm-zephyr-eabi-  or  '
+                'export CROSS_COMPILE=riscv64-unknown-elf-)'
             )
-        cfg.env.TOOLCHAIN = _cross.rstrip('-').rsplit('/', 1)[-1]
         cfg.load('toolchain')
 
     def configure_env(self, cfg, env):

@@ -24,8 +24,12 @@ endif()
 #    zephyr_library_sources(${_HAL_DRIVERS}/i2c/i2c_mchp_corei2c.c)
 #endif()
 
-# no DT-gate needed: DT_INST_FOREACH_STATUS_OKAY inside self-gates, so a
-# missing DT node is a link error, not silence
+zephyr_linker_sources(SECTIONS
+    ${CMAKE_CURRENT_SOURCE_DIR}/picolibc_heap.ld
+)
+
+# ROBOTICS cape fabric servo PWM. Self-gating via DT_INST_FOREACH_STATUS_OKAY —
+# always compile so a missing DT node surfaces as a link error, not silence.
 zephyr_library_sources(${_HAL_DRIVERS}/pwm/pwm_fabric_servo.c)
 
 if(CONFIG_DT_HAS_MICROCHIP_MIV_IHC_RTL_V2_ENABLED)
