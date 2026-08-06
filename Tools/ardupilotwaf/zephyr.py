@@ -143,18 +143,26 @@ def configure(cfg):
     _module_yml = os.path.join(env.ZEPHYR_BOARD_HAL_DIR, 'zephyr', 'module.yml')
     env.ZEPHYR_EXTRA_MODULES = env.ZEPHYR_BOARD_HAL_DIR if os.path.exists(_module_yml) else ''
 
+    _sdk = os.environ.get('ZEPHYR_SDK_INSTALL_DIR', '').rstrip('/')
     _cross = os.environ.get('CROSS_COMPILE', '')
-    if not _cross:
+    if _sdk:
+        env.ZEPHYR_TOOLCHAIN_VARIANT = 'zephyr'
+        env.ZEPHYR_SDK_INSTALL_DIR = _sdk
+        env.CROSS_COMPILE = ''
+        env.CROSS_COMPILE_TOOLCHAIN_PATH = ''
+    elif _cross:
+        env.ZEPHYR_TOOLCHAIN_VARIANT = 'cross-compile'
+        env.ZEPHYR_SDK_INSTALL_DIR = ''
+        env.CROSS_COMPILE = _cross
+        env.CROSS_COMPILE_TOOLCHAIN_PATH = os.environ.get(
+            'CROSS_COMPILE_TOOLCHAIN_PATH',
+            os.path.dirname(os.path.dirname(_cross.rstrip('/'))))
+    else:
         cfg.fatal(
-            'CROSS_COMPILE env var must be set '
-            '(e.g. export CROSS_COMPILE=riscv-none-elf-  or  '
-            'export CROSS_COMPILE=arm-zephyr-eabi-)'
+            'AP_HAL_Zephyr: set ZEPHYR_SDK_INSTALL_DIR (Zephyr SDK) or '
+            'CROSS_COMPILE (e.g. export CROSS_COMPILE=arm-zephyr-eabi-  or  '
+            'export CROSS_COMPILE=riscv64-unknown-elf-)'
         )
-    env.ZEPHYR_TOOLCHAIN_VARIANT = 'cross-compile'
-    env.CROSS_COMPILE = _cross
-    _tc_path = os.environ.get('CROSS_COMPILE_TOOLCHAIN_PATH',
-                              os.path.dirname(os.path.dirname(_cross.rstrip('/'))))
-    env.CROSS_COMPILE_TOOLCHAIN_PATH = _tc_path
     _venv_py = os.path.join(_workspace_root, 'sdk/.venv/bin/python3')
     env.Python3_EXECUTABLE = os.environ.get(
         'PYTHON3', _venv_py if os.path.isfile(_venv_py) else sys.executable
@@ -173,7 +181,10 @@ def configure(cfg):
     cfg.msg('ZEPHYR_BOARD',              env.ZEPHYR_BOARD)
     cfg.msg('ZEPHYR_BOARD_HAL_DIR',      env.ZEPHYR_BOARD_HAL_DIR)
     cfg.msg('ZEPHYR_TOOLCHAIN_VARIANT',  env.ZEPHYR_TOOLCHAIN_VARIANT)
-    cfg.msg('CROSS_COMPILE',             env.CROSS_COMPILE)
+    if env.ZEPHYR_SDK_INSTALL_DIR:
+        cfg.msg('ZEPHYR_SDK_INSTALL_DIR', env.ZEPHYR_SDK_INSTALL_DIR)
+    else:
+        cfg.msg('CROSS_COMPILE',         env.CROSS_COMPILE)
     cfg.msg('DTC_OVERLAY_FILE',          env.DTC_OVERLAY_FILE)
     cfg.msg('Zephyr_DIR',                env.Zephyr_DIR)
     cfg.msg('ZEPHYR_MODULES',            env.ZEPHYR_MODULES)
@@ -184,8 +195,14 @@ def pre_build(bld):
     cmake_vars['BOARD']                          = bld.env.ZEPHYR_BOARD
     cmake_vars['ZEPHYR_BASE']                    = bld.env.ZEPHYR_BASE
     cmake_vars['ZEPHYR_TOOLCHAIN_VARIANT']       = bld.env.ZEPHYR_TOOLCHAIN_VARIANT
-    cmake_vars['CROSS_COMPILE']                  = bld.env.CROSS_COMPILE
-    cmake_vars['CROSS_COMPILE_TOOLCHAIN_PATH']   = bld.env.CROSS_COMPILE_TOOLCHAIN_PATH
+    # Zephyr SDK mode: hand CMake the SDK dir and let it resolve the per-arch
+    # compiler; do NOT send CROSS_COMPILE* (empty values would override the SDK
+    # variant's native resolution).
+    if bld.env.ZEPHYR_SDK_INSTALL_DIR:
+        cmake_vars['ZEPHYR_SDK_INSTALL_DIR']     = bld.env.ZEPHYR_SDK_INSTALL_DIR
+    if bld.env.CROSS_COMPILE:
+        cmake_vars['CROSS_COMPILE']              = bld.env.CROSS_COMPILE
+        cmake_vars['CROSS_COMPILE_TOOLCHAIN_PATH'] = bld.env.CROSS_COMPILE_TOOLCHAIN_PATH
     cmake_vars['DTC_OVERLAY_FILE']               = bld.env.DTC_OVERLAY_FILE
     cmake_vars['Zephyr_DIR']                     = bld.env.Zephyr_DIR
     cmake_vars['Python3_EXECUTABLE']             = bld.env.Python3_EXECUTABLE

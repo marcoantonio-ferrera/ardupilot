@@ -10,24 +10,6 @@
 
 #include <strings.h>
 
-// picolibc doesn't ship memmem()
-#ifdef __PICOLIBC__
-#include <string.h>
-static inline void *memmem(const void *haystack, size_t hlen,
-                            const void *needle,   size_t nlen)
-{
-    if (nlen == 0) { return (void *)haystack; }
-    if (nlen > hlen) { return nullptr; }
-    const char *h = static_cast<const char *>(haystack);
-    const char *n = static_cast<const char *>(needle);
-    for (size_t i = 0; i <= hlen - nlen; i++) {
-        if (memcmp(h + i, n, nlen) == 0) {
-            return (void *)(h + i);
-        }
-    }
-    return nullptr;
-}
-#endif
 
 // force C linkage on arch_inlines.h before arch_interface.h declares it
 // extern "C" (Zephyr include-order bug)

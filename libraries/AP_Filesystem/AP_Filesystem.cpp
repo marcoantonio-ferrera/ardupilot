@@ -40,7 +40,9 @@ static AP_Filesystem_FlashMemory_LittleFS fs_local;
 static AP_Filesystem_Posix fs_local;
 #else
 static AP_Filesystem_Backend fs_local;
+#ifndef errno
 int errno;
+#endif
 #endif
 
 #if AP_FILESYSTEM_ROMFS_ENABLED
