@@ -1,0 +1,4 @@
+# hwdef.h holds the real config; this file just registers the board with WAF.
+define HAL_BOARD_NAME "BeagleV-Fire"
+define ZEPHYR_BOARD  beaglev_fire/polarfire/u54
+define ZEPHYR_SDK_TARGET riscv64-zephyr-elf

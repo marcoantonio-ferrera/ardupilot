@@ -12,6 +12,7 @@
 
 #include "HAL_Zephyr_Class.h"
 #include "AP_HAL_Zephyr_Private.h"
+#include "RPMsgUARTDriver.h"
 
 using namespace Zephyr;
 
@@ -24,7 +25,11 @@ static UARTDriver serial3Driver(3);
 static UARTDriver serial4Driver(4);
 
 #if HAL_ZEPHYR_NUM_SERIAL_PORTS > 5
+#if HAL_ZEPHYR_RPMSG_SERIAL_ENABLED
+static RPMsgUARTDriver serial5Driver;
+#else
 static UARTDriver serial5Driver(5);
+#endif
 #else
 static Empty::UARTDriver serial5Driver;
 #endif

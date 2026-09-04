@@ -4,7 +4,7 @@
 
 / {
 	chosen {
-		/* shared wire with SERIAL0 MAVLink */
+		/* shares wire with SERIAL0/MAVLink -- standalone board's normal wiring */
 		zephyr,console = &uart2;
 	};
 
@@ -12,11 +12,14 @@
 		ardupilot-serial0 = &uart2;
 		ardupilot-serial4 = &uart4;
 
+		/* RCInput autodetects framing; SBUS is inverted and needs an external
+		 * inverter since the MSS UART has no RX invert (iBUS is not). */
+		ardupilot-rcinput = &uart3;
+
 		ardupilot-gpio0 = &gpio0;
-		ardupilot-gpio1 = &gpio1;
 		ardupilot-gpio2 = &gpio2;
 
-		ardupilot-i2c0 = &i2c0;
+		ardupilot-i2c0 = &cape_i2c;
 
 		ardupilot-spi1 = &spi1;
 
@@ -25,8 +28,6 @@
 		ardupilot-esc-enable = &esc_enable_pin;
 
 		sdhc0 = &sdhc_spi;
-
-		ardupilot-rcinput = &uart3;
 	};
 
 	/* ROBOTICS cape fabric servo PWM, 8 ch in the FIC3 AXI window. */
@@ -34,6 +35,19 @@
 		compatible = "beaglev-fire,fabric-servo-pwm";
 		reg = <0x41000000 0x20>;
 		#pwm-cells = <2>;
+		status = "okay";
+	};
+
+	/* fabric CoreI2C for IMU + baro (P9_19 SCL / P9_20 SDA), replacing MSS i2c0
+	 * so the MSS AHB can stay at 150 MHz for USB; BCLK_DIV_8 gives ~390 kHz SCL. */
+	cape_i2c: i2c@41600000 {
+		compatible = "ardupilot,mpfs-corei2c";
+		reg = <0x41600000 0x1000>;
+		interrupt-parent = <&plic>;
+		interrupts = <150 1>;        /* fabric F2M[32] -> PLIC 118+32 */
+		clock-frequency = <400000>;  /* FAST -> BCLK_DIV_8 */
+		#address-cells = <1>;
+		#size-cells = <0>;
 		status = "okay";
 	};
 
@@ -46,9 +60,9 @@
 	};
 };
 
-/* IMU + baro live on i2c0 (ROBOTICS cape) */
+/* retired: IMU/baro moved to cape_i2c */
 &i2c0 {
-	status = "okay";
+	status = "disabled";
 };
 
 &i2c1 {
@@ -61,8 +75,9 @@
 };
 
 &gpio1 {
+	/* unused by ArduPilot and no Linux to hand it to in standalone mode,
+	 * so left enabled with default ngpios */
 	status = "okay";
-	ngpios = <24>;
 };
 
 &gpio2 {
@@ -81,23 +96,24 @@
 	status = "disabled";
 };
 
-/* PCLK override matches mss_ahb_div.c halving AHB to 75 MHz at PRE_KERNEL_1,
- * so ns16550 computes the right baud latch. */
+/* MSS AHB is at its default 150 MHz (no divider shim), so clock-frequency
+ * must match at 150 MHz for ns16550's baud latch calc. */
 &uart2 {
 	status = "okay";
-	clock-frequency = <75000000>;
+	clock-frequency = <150000000>;
 	current-speed = <115200>;
 };
 
 &uart3 {
 	status = "okay";
-	clock-frequency = <75000000>;
+	clock-frequency = <150000000>;
 	current-speed = <115200>;
 };
 
 &uart4 {
+	/* GPS, u-blox NEO-M8N; 9600 matches DEFAULT_SERIAL4_BAUD */
 	status = "okay";
-	clock-frequency = <75000000>;
+	clock-frequency = <150000000>;
 	current-speed = <9600>;
 };
 
@@ -106,11 +122,11 @@
 };
 
 &spi1 {
-	/* use the AP_HAL_Zephyr fork — upstream microchip,mpfs-spi has no
-	 * GPIO CS handling, so cs-gpios would be ignored. */
+	/* ardupilot,mpfs-mss-spi, not upstream microchip,mpfs-spi: upstream has
+	 * no GPIO CS handling, so cs-gpios below would be ignored. */
 	compatible = "ardupilot,mpfs-mss-spi";
 	status = "okay";
-	clock-frequency = <75000000>;
+	clock-frequency = <150000000>;
 	#address-cells = <1>;
 	#size-cells = <0>;
 	cs-gpios = <&gpio0 12 GPIO_ACTIVE_LOW>;
@@ -130,7 +146,7 @@
 	};
 };
 
-/* relocate Zephyr SRAM to avoid overlapping with U-Boot in DDR */
-&ddr_cached_high {
-	reg = <0x10 0x04000000 0x7C000000>;
-};
+/* Zephyr SRAM stays at the full 2 GiB ddr_cached_high window from
+ * beaglev_fire_common.dtsi -- standalone FC owns all of DDR, so there's no
+ * Linux reservation to bound the heap (the AMP variant shrinks this to
+ * 128 MiB and adds the rpmsg/IHC nodes). */
