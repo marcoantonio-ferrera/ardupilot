@@ -24,6 +24,10 @@ if(CONFIG_DT_HAS_ARDUPILOT_MPFS_MSS_SPI_ENABLED)
     zephyr_library_include_directories(${ZEPHYR_BASE}/drivers/spi)
 endif()
 
+zephyr_linker_sources(SECTIONS
+    ${CMAKE_CURRENT_SOURCE_DIR}/picolibc_heap.ld
+)
+
 # ROBOTICS cape fabric servo PWM. Self-gating via DT_INST_FOREACH_STATUS_OKAY —
 # always compile so a missing DT node surfaces as a link error, not silence.
 zephyr_library_sources(${_HAL_DRIVERS}/pwm/pwm_fabric_servo.c)
