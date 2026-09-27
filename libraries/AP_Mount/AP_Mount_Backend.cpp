@@ -16,6 +16,7 @@ extern const AP_HAL::HAL& hal;
 #define AP_MOUNT_POI_REQUEST_TIMEOUT_MS 30000   // POI calculations continue to be updated for this many seconds after last request
 #define AP_MOUNT_POI_RESULT_TIMEOUT_MS  3000    // POI calculations valid for 3 seconds
 #define AP_MOUNT_POI_DIST_M_MAX         10000   // POI calculations limit of 10,000m (10km)
+#define AP_MOUNT_SYSID_TIMEOUT_MS       3000    // sysid target location considered stale if not updated within this many ms (matches AP_Follow's own default FOLL_TIMEOUT)
 
 // Default init function for every mount
 void AP_Mount_Backend::init()
@@ -301,11 +302,14 @@ void AP_Mount_Backend::update_poi_lock_target()
     Location target_location;
 
     if (!mnt_target.pointing_at_poi_at_home_alt) {
-        calculate_poi_at_home_alt(target_location);
-        set_roi_target(target_location);
+        if (calculate_poi_at_home_alt(target_location)) {
+            set_roi_target(target_location);
+        }
+        // attempt the home-alt POI only once per switch engagement; retrying would repeat warnings at the update rate
         mnt_target.pointing_at_poi_at_home_alt = true;
     }
 
+#if AP_MOUNT_POI_TO_LATLONALT_ENABLED
     // POI calculation is running and but will silently give up after 3 seconds normally if it does not succeed
     // try to resolve a AuxFunc POI command to a lat/lng/alt using get_poi
     // set up variables for get_poi call
@@ -335,6 +339,10 @@ void AP_Mount_Backend::update_poi_lock_target()
     //stop terrain-based POI calculation
         mnt_target.poi_start_ms = 0;
     }
+#else
+    // terrain-based POI is not available so the home-alt POI stands
+    mnt_target.poi_start_ms = 0;
+#endif // AP_MOUNT_POI_TO_LATLONALT_ENABLED
 }
 
 #endif // AP_MOUNT_POI_LOCK_ENABLED
@@ -389,6 +397,12 @@ void AP_Mount_Backend::set_roi_target_wpnext_offset(const Vector3f &rpy)
 // set_sys_target - sets system that mount should attempt to point towards
 void AP_Mount_Backend::set_target_sysid(uint8_t sysid)
 {
+    if (sysid != _target_sysid) {
+        // forget the previous target's location so it isn't briefly
+        // reported as the new target's (still-fresh) position
+        _target_sysid_location.zero();
+        _target_sysid_update_ms = 0;
+    }
     _target_sysid = sysid;
 
     // set the mode to sysid tracking mode
@@ -402,7 +416,7 @@ void AP_Mount_Backend::set_target_sysid(uint8_t sysid)
 
 #if HAL_GCS_ENABLED
 // send a CAMERA_INFORMATION message to GCS
-void AP_Mount_Backend::send_camera_information(mavlink_channel_t chan) const
+void AP_Mount_Backend::send_camera_information(mavlink_channel_t chan, uint8_t camera_device_id) const
 {
     if (!has_camera_information()) {
         return;
@@ -431,7 +445,8 @@ void AP_Mount_Backend::send_camera_information(mavlink_channel_t chan) const
         get_camera_cap_flags(),        // flags uint32_t (CAMERA_CAP_FLAGS)
         0,                             // cam_definition_version uint16_t
         cam_definition_uri,            // cam_definition_uri char[140]
-        _instance + 1);                // gimbal_device_id uint8_t
+        get_mavlink_device_id(),       // gimbal_device_id uint8_t
+        camera_device_id);             // camera_device_id uint8_t
 }
 
 // send a GIMBAL_DEVICE_ATTITUDE_STATUS message to GCS
@@ -507,7 +522,7 @@ void AP_Mount_Backend::send_gimbal_manager_information(mavlink_channel_t chan)
     mavlink_msg_gimbal_manager_information_send(chan,
                                                 AP_HAL::millis(),                       // autopilot system time
                                                 get_gimbal_manager_capability_flags(),  // bitmap of gimbal manager capability flags
-                                                _instance + 1,                          // gimbal device id
+                                                get_mavlink_device_id(),                 // gimbal device id
                                                 radians(_params.roll_angle_min),        // roll_min in radians
                                                 radians(_params.roll_angle_max),        // roll_max in radians
                                                 radians(_params.pitch_angle_min),       // pitch_min in radians
@@ -528,7 +543,7 @@ void AP_Mount_Backend::send_gimbal_manager_status(mavlink_channel_t chan)
     mavlink_msg_gimbal_manager_status_send(chan,
                                            AP_HAL::millis(),    // autopilot system time
                                            flags,               // bitmap of gimbal manager flags
-                                           _instance + 1,       // gimbal device id
+                                           get_mavlink_device_id(), // gimbal device id
                                            mavlink_control_id.sysid,    // primary control system id
                                            mavlink_control_id.compid,   // primary control component id
                                            0,                           // secondary control system id
@@ -650,6 +665,7 @@ bool AP_Mount_Backend::handle_global_position_int(uint8_t msg_sysid, const mavli
     _target_sysid_location.lng = packet.lon;
     // global_position_int.alt is *UP*, so is location.
     _target_sysid_location.set_alt_cm(packet.alt*0.1, Location::AltFrame::ABSOLUTE);
+    _target_sysid_update_ms = AP_HAL::millis();
 
     return true;
 }
@@ -829,8 +845,9 @@ void AP_Mount_Backend::calculate_poi()
         }
     }
 }
+#endif // AP_MOUNT_POI_TO_LATLONALT_ENABLED
 
-
+#if AP_MOUNT_POI_LOCK_ENABLED
 // calculate location gimbal is pointing, at HOME altitude. Used if Terrain is not avaialble
 bool AP_Mount_Backend::calculate_poi_at_home_alt(Location &target_location)
 {
@@ -926,7 +943,7 @@ bool AP_Mount_Backend::calculate_poi_at_home_alt(Location &target_location)
     target_location.alt = home.alt;
     return true;
 }
-#endif
+#endif // AP_MOUNT_POI_LOCK_ENABLED
 
 // change to RC_TARGETING mode if rc inputs have changed by more than the dead zone
 // should be called on every update
@@ -1215,6 +1232,10 @@ bool AP_Mount_Backend::get_angle_target_to_sysid(MountAngleTarget& angle_rad) co
         return false;
     }
     if (!_target_sysid) {
+        return false;
+    }
+    // exit if we haven't heard from the target recently, to avoid snapping to a stale location
+    if (AP_HAL::millis() - _target_sysid_update_ms > AP_MOUNT_SYSID_TIMEOUT_MS) {
         return false;
     }
     return get_angle_target_to_location(_target_sysid_location, angle_rad);

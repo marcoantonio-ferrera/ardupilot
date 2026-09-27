@@ -5,24 +5,18 @@
 #include <AP_ExternalAHRS/AP_ExternalAHRS.h>
 #include <AP_AHRS/AP_AHRS.h>
 
-// true if the AHRS has completed initialisation
-bool AP_AHRS_External::initialised(void) const
-{
-    return AP::externalAHRS().initialised();
-}
-
 void AP_AHRS_External::update()
 {
     AP::externalAHRS().update();
 }
 
-bool AP_AHRS_External::healthy() const {
-    return AP::externalAHRS().healthy();
-}
-
 void AP_AHRS_External::get_results(AP_AHRS_Backend::Estimates &results)
 {
     auto &extahrs = AP::externalAHRS();
+
+    results.initialised = extahrs.initialised();
+
+    results.healthy = extahrs.healthy();
 
 #if AP_INERTIALSENSOR_ENABLED
     const AP_InertialSensor &_ins = AP::ins();
@@ -30,6 +24,23 @@ void AP_AHRS_External::get_results(AP_AHRS_Backend::Estimates &results)
     results.primary_gyro = _ins.get_first_usable_gyro();
     results.primary_accel = _ins.get_first_usable_accel();
 #endif  // AP_INERTIALSENSOR_ENABLED
+
+    // no limit on gains, large vel limit
+    results.control_ground_speed_limit_ms = 400.0;
+    results.control_gain_scaler_XY = 1;
+    results.control_gain_scaler_Z = 1;
+
+    // control height is never limited:
+    // results.control_height_limit_valid = false;
+    // results.control_height_limit_m = 0;
+
+#if AP_AIRSPEED_ENABLED
+    // External may or may not be using this sensor; we don't
+    // currently have this information.  This must be filled in
+    // even when we have no attitude, so do it before the early
+    // return below:
+    results.active_airspeed_index = primary_airspeed_index();
+#endif  // AP_AIRSPEED_ENABLED
 
     if (!extahrs.get_quaternion(results.quaternion)) {
         results.attitude_valid = false;
@@ -73,9 +84,30 @@ void AP_AHRS_External::get_results(AP_AHRS_Backend::Estimates &results)
      */
     results.location_valid = AP::externalAHRS().get_location(results.location);
 
+    // origin-relative functions
+    results.provides_common_origin = true;
+
+    // origin-relative position:
+    Location orgn;
+    if (extahrs.get_origin(orgn) &&
+        results.location_valid) {
+        const Vector3p posNED = orgn.get_distance_NED_postype(results.location);
+        results.position_NE = posNED.xy();
+        results.position_NE_valid = true;
+        results.position_D = posNED.z;
+        results.position_D_valid = true;
+    }
+
     // hagl is not supplied:
     // results.hagl_valid = false;
     // results.hagl = 0;
+
+    /*
+     * air data estimates
+     */
+    // wind estimate is not supplied:
+    // results.wind = {};
+    // results.wind_valid = false;
 
     /*
      * Sensor-related information
@@ -87,46 +119,36 @@ void AP_AHRS_External::get_results(AP_AHRS_Backend::Estimates &results)
     // for this estimator.  Used to decide whether GPS will set
     // the navigation origin.
     results.configured_to_use_gps_for_pos_XY = true;
-}
 
-bool AP_AHRS_External::get_relative_position_NED_origin(Vector3p &vec) const
-{
-    auto &extahrs = AP::externalAHRS();
-    Location loc, orgn;
-    if (extahrs.get_origin(orgn) &&
-        extahrs.get_location(loc)) {
-        const Vector2f diff2d = orgn.get_distance_NE(loc);
-        vec = Vector3p(diff2d.x, diff2d.y,
-                       -(loc.alt - orgn.alt)*0.01);
-        return true;
-    }
-    return false;
-}
+    // are we consuming yaw from an external (e.g. vision-based) source?
+    // this relates only to external sources being passed in via mavlink
+    // results.using_extnav_for_yaw = false;
 
-bool AP_AHRS_External::get_relative_position_NE_origin(Vector2p &posNE) const
-{
-    auto &extahrs = AP::externalAHRS();
+    // are we consuming yaw from a source which is *not* a compass
+    // results.using_noncompass_for_yaw = false;
 
-    Location loc, orgn;
-    if (!extahrs.get_location(loc) ||
-        !extahrs.get_origin(orgn)) {
-        return false;
-    }
-    posNE = orgn.get_distance_NE_postype(loc);
-    return true;
-}
+#if AP_AHRS_GET_MAG_DATA_ENABLED
+    // estimators can provide their predicted magnetic fields:
+    // ... but External does not, and probably should not as the
+    // external unit will be experiencing a different magnetic
+    // environment to the autopilot.
+    // results.mag_field_NED = {};
+    // results.mag_field_NED_valid = false;
+    // results.mag_field_corrections = {};
+    // results.mag_field_corrections_valid = false;
+#endif  // AP_AHRS_GET_MAG_DATA_ENABLED
 
-bool AP_AHRS_External::get_relative_position_D_origin(postype_t &posD) const
-{
-    auto &extahrs = AP::externalAHRS();
+    /*
+     * filter status and estimates quality values:
+     */
+    AP::externalAHRS().get_filter_status(results.filter_status);
+    results.filter_status_valid = true;
 
-    Location orgn, loc;
-    if (!extahrs.get_origin(orgn) ||
-        !extahrs.get_location(loc)) {
-        return false;
-    }
-    posD = -(loc.alt - orgn.alt)*0.01;
-    return true;
+    // provides the innovations normalised between 0 and 1:
+    results.variances_valid = AP::externalAHRS().get_variances(results.velVar, results.posVar, results.hgtVar, results.magVar, results.tasVar);
+
+    results.terrain_alt_variance = 0;
+    results.terrain_alt_variance_valid = true;
 }
 
 bool AP_AHRS_External::pre_arm_check(bool requires_position, char *failure_msg, uint8_t failure_msg_len) const
@@ -134,32 +156,14 @@ bool AP_AHRS_External::pre_arm_check(bool requires_position, char *failure_msg, 
     return AP::externalAHRS().pre_arm_check(failure_msg, failure_msg_len);
 }
 
-bool AP_AHRS_External::get_filter_status(nav_filter_status &status) const
-{
-    AP::externalAHRS().get_filter_status(status);
-    return true;
-}
-
-bool AP_AHRS_External::get_variances(float &velVar, float &posVar, float &hgtVar, Vector3f &magVar, float &tasVar) const
-{
-    return AP::externalAHRS().get_variances(velVar, posVar, hgtVar, magVar, tasVar);
-}
-
-void AP_AHRS_External::send_ekf_status_report(GCS_MAVLINK &link) const
-{
-    AP::externalAHRS().send_status_report(link);
-}
-
 bool AP_AHRS_External::get_origin(Location &ret) const
 {
     return AP::externalAHRS().get_origin(ret);
 }
 
-void AP_AHRS_External::get_control_limits(float &ekfGndSpdLimit, float &ekfNavVelGainScaler) const
+bool AP_AHRS_External::set_origin(const Location &loc)
 {
-    // no limit on gains, large vel limit
-    ekfGndSpdLimit = 400.0;
-    ekfNavVelGainScaler = 1;
+    return AP::externalAHRS().set_origin(loc);
 }
 
 #endif

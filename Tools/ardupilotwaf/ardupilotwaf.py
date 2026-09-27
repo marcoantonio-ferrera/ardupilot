@@ -131,6 +131,7 @@ COMMON_VEHICLE_DEPENDENT_LIBRARIES = [
     'AP_RCMapper',
     'AP_MultiHeap',
     'AP_Follow',
+    'AP_GroundEffect',
 ]
 
 def get_legacy_defines(sketch_name, bld):
@@ -438,8 +439,12 @@ def ap_stlib(bld, **kw):
     for l in kw['ap_libraries']:
         bld.ap_library(l, kw['ap_vehicle'])
 
-    if 'dynamic_source' not in kw:
-        kw['dynamic_source'] = 'modules/DroneCAN/libcanard/dsdlc_generated/src/**.c'
+    # Pull the shared 'dronecan_libs' objects target (see
+    # _build_common_taskgens()) in via 'use'
+    if 'dynamic_source' not in kw and \
+            (bld.get_board().with_can or bld.env.HAL_NUM_CAN_IFACES) and \
+            not bld.env.AP_PERIPH:
+        kw['use'] = unique_list(Utils.to_list(kw.get('use', [])) + ['dronecan_libs'])
 
     kw['features'] = kw.get('features', []) + ['cxx', 'cxxstlib']
     kw['target'] = kw['name']

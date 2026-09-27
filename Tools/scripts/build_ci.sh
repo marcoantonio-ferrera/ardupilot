@@ -33,7 +33,9 @@ export GIT_VERSION="abcdef"
 export GIT_VERSION_EXTENDED="0123456789abcdef"
 export GIT_VERSION_INT="15"
 export CHIBIOS_GIT_VERSION="12345667"
-export CCACHE_SLOPPINESS="include_file_ctime,include_file_mtime"
+if [ -z "$GITHUB_ACTIONS" ] || [ "$GITHUB_ACTIONS" != "true" ]; then
+  export CCACHE_SLOPPINESS="include_file_ctime,include_file_mtime"
+fi
 autotest_args=""
 
 # If CI_BUILD_TARGET is not set, build 4 different ones
@@ -111,7 +113,7 @@ function run_autotest() {
     if [ $c_compiler == "clang" ]; then
         w="$w --check-c-compiler=clang --check-cxx-compiler=clang++"
     fi
-    if [ "$NAME" == "Rover" ]; then
+    if [ "$BVEHICLE" == "build.Rover" ]; then
         w="$w --enable-math-check-indexes"
     fi
     if [ "x$CI_BUILD_DEBUG" != "x" ]; then
@@ -167,6 +169,7 @@ for t in $CI_BUILD_TARGET; do
         $waf configure --board sitl
         $waf copter
         run_autotest "Copter" "build.SITLPeriphUniversal" "test.CAN"
+        run_autotest "Copter" "build.SITLPeriphBattMon" "test.BattCAN"
         continue
     fi
     if [ "$t" == "sitltest-plane-tests1a" ]; then
@@ -477,6 +480,13 @@ for t in $CI_BUILD_TARGET; do
         continue
     fi
 
+    if [ "$t" == "clang_scan_build" ]; then
+        unset BUILDROOT
+        echo "Running SITL clang-scan-build test"
+        ./Tools/autotest/autotest.py clang-scan-build
+        continue
+    fi
+
     if [ "$t" == "validate_board_list" ]; then
         echo "Validating board list"
         ./Tools/autotest/validate_board_list.py
@@ -581,6 +591,7 @@ for t in $CI_BUILD_TARGET; do
         for v in Rover Tracker Copter Plane Sub Blimp; do
             python3 Tools/autotest/logger_metadata/parse.py --vehicle $v
         done
+        python3 Tools/scripts/decode_devid.py --dump-json /dev/null --dump-json5 /dev/null
         continue
     fi
 
